@@ -1,4 +1,4 @@
-name: Build & Push to Artifact Registry (OIDC)
+name: Build & Push to Artifact Registry
 
 on:
   push:
@@ -6,49 +6,41 @@ on:
 
 env:
   REGION: asia-northeast3
-  REPOSITORY: blueberry-repo
+  REPOSITORY:  deploy-test-p
   PROJECT_ID: infra-477010
-  IMAGE_NAME: blueberry-image
+  IMAGE_NAME: img-test  # 예: my-service
   N8N_WEBHOOK_URL: https://yvvpark.app.n8n.cloud/webhook-test/bc3c9eb3-5798-43f0-845e-90e7765c5091
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write   # ✅ OIDC 필수
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      # ✅ Workload Identity Federation (OIDC)
-      - name: Authenticate to Google Cloud via OIDC
+      - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+          credentials_json: ${{ secrets.GCR_SERVICE_ACCOUNT }}
 
-      # Docker 인증 설정
       - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+        run: |
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
 
-      # Docker Build
       - name: Build Docker image
         run: |
           IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${GITHUB_SHA::8}"
           echo "IMAGE=$IMAGE" >> $GITHUB_ENV
           docker build -t $IMAGE .
 
-      # Push
       - name: Push to Artifact Registry
         run: |
           docker push $IMAGE
           echo "✅ Successfully pushed: $IMAGE"
 
-      # n8n Webhook 알림 (Slack Approval Step)
       - name: Notify n8n for Slack Approval
-        if: success()
+        if: success()  # 빌드 성공 시에만 실행
         run: |
           curl -X POST "${{ env.N8N_WEBHOOK_URL }}" \
           -H "Content-Type: application/json" \
